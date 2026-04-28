@@ -1,0 +1,31 @@
+services:
+  # MQTT Broker (Mosquitto)
+  # <v3-name>
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    container_name: mqtt-broker
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: always
+
+  # Python Subscriber Node
+  # <v3-name>
+  mqtt-subscriber:
+    build: .
+    container_name: mqtt-subscriber
+    environment:
+      - MQTT_BROKER=mqtt-broker
+      - MQTT_PORT=1883
+      - MQTT_TOPIC=iot/sensors/#
+    depends_on:
+      - mqtt-broker
+    volumes:
+      - ./sensors_data.json:/app/sensors_data.json
+      - ./status_data.json:/app/status_data.json
+      - ./mqtt_sub.py:/app/mqtt_sub.py
+    restart: always

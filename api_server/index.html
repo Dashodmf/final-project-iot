@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IoT Final Project Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #eceff1; }
+        .container { max-width: 800px; margin: auto; }
+        .card { background: white; padding: 20px; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+        .btn { padding: 12px 24px; margin: 5px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: white; transition: 0.3s; }
+        .btn-on { background: #4caf50; }
+        .btn-off { background: #f44336; }
+        .btn-range { background: #607d8b; }
+        .btn-active { background: #2196f3; }
+        .btn-info-style { background: #9c27b0; }
+        .info-panel { display: none; background: white; padding: 20px; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .info-panel.open { display: block; }
+        .info-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .info-table th { background: #607d8b; color: white; padding: 10px; }
+        .info-table td { padding: 10px; border-bottom: 1px solid #eee; }
+        .info-table tr:last-child td { border-bottom: none; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h1>Smart Home Control Center</h1>
+        <button class="btn btn-info-style" onclick="toggleInfo()">Team Info</button>
+    </div>
+
+    <div class="info-panel" id="info-panel">
+        <h3>Team Information</h3>
+        <table class="info-table">
+            <thead>
+                <tr><th>Name</th><th>Student ID</th></tr>
+            </thead>
+            <tbody id="info-body">
+                <tr><td colspan="2">loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>House Lighting Control</h2>
+        <button class="btn btn-on" onclick="controlLight('ON')">TURN LIGHT ON</button>
+        <button class="btn btn-off" onclick="controlLight('OFF')">TURN LIGHT OFF</button>
+        <p>Current Status: <span id="light-state" style="font-weight:bold;">Unknown</span></p>
+    </div>
+
+    <div style="text-align:center; margin-bottom:10px;">
+        <strong>History Range: </strong>
+        <button id="btn-60" class="btn btn-range btn-active" onclick="changeRange(60)">1 Hour</button>
+        <button id="btn-360" class="btn btn-range" onclick="changeRange(360)">6 Hours</button>
+    </div>
+
+    <div class="card">
+        <h3>Room Temperature History</h3>
+        <canvas id="tempChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>Board Connectivity Status</h3>
+        <canvas id="statusChart"></canvas>
+        <div id="board-list" style="margin-top:10px;"></div>
+    </div>
+</div>
+
+<script>
+    let tempChart, statusChart;
+    let currentRange = 60;
+
+    function changeRange(mins) {
+        currentRange = mins;
+        document.getElementById('btn-60').classList.toggle('btn-active', mins === 60);
+        document.getElementById('btn-360').classList.toggle('btn-active', mins === 360);
+        updateDashboard();
+    }
+
+    async function toggleInfo() {
+        const panel = document.getElementById('info-panel');
+        panel.classList.toggle('open');
+        if (panel.classList.contains('open')) {
+            try {
+                const res = await fetch('/info');
+                const data = await res.json();
+                document.getElementById('info-body').innerHTML = data.name.map((name, i) => `
+                    <tr><td>${name}</td><td>${data.std_id[i] || '-'}</td></tr>
+                `).join('');
+            } catch {
+                document.getElementById('info-body').innerHTML = '<tr><td colspan="2" style="color:red;">Failed to load</td></tr>';
+            }
+        }
+    }
+
+    async function controlLight(state) {
+        const url = (state === 'ON') ? '/light_on' : '/light_off';
+        try {
+            await fetch(url);
+            updateDashboard();
+        } catch (err) { console.error(err); }
+    }
+
+    // Reduce data points to max N points by sampling
+    function sampleData(arr, maxPoints) {
+        if (arr.length <= maxPoints) return arr;
+        const step = Math.ceil(arr.length / maxPoints);
+        return arr.filter((_, i) => i % step === 0);
+    }
+
+    async function updateDashboard() {
+        try {
+            const [resTemp, resStatus, resLight] = await Promise.all([
+                fetch(`/data/history?field=temperature&minutes=${currentRange}`),
+                fetch(`/status`),
+                fetch(`/light_status`)
+            ]);
+
+            const tempHistory = await resTemp.json();
+            const statusData = await resStatus.json();
+            const lightData = await resLight.json();
+
+            // Light status
+            document.getElementById('light-state').innerText = lightData.light ? "ON" : "OFF";
+            document.getElementById('light-state').style.color = lightData.light ? "green" : "red";
+
+            // Temperature chart - sample to max 60 points
+            const sortedTemp = tempHistory.sort((a, b) => new Date(a.time) - new Date(b.time));
+            const sampledTemp = sampleData(sortedTemp, 60);
+            const tempLabels = sampledTemp.map(d => new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const tempValues = sampledTemp.map(d => parseFloat(d.value.toFixed(2)));
+
+            if (tempChart) tempChart.destroy();
+            tempChart = new Chart(document.getElementById('tempChart'), {
+                type: 'line',
+                data: {
+                    labels: tempLabels,
+                    datasets: [{ label: 'Temp (C)', data: tempValues, borderColor: 'orange', backgroundColor: 'rgba(255,165,0,0.1)', fill: true, tension: 0.3, pointRadius: 3 }]
+                },
+                options: {
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 10 } },
+                        y: { title: { display: true, text: 'Temperature (C)' } }
+                    }
+                }
+            });
+
+            // Board status
+            const boards = Object.entries(statusData).filter(([k]) => k !== 'last_time_heartbeat');
+            const boardLabels = boards.map(([name]) => name);
+            const boardValues = boards.map(([, online]) => online ? 1 : 0);
+
+            if (statusChart) statusChart.destroy();
+            statusChart = new Chart(document.getElementById('statusChart'), {
+                type: 'bar',
+                data: {
+                    labels: boardLabels,
+                    datasets: [{ label: 'Online (1) / Offline (0)', data: boardValues, backgroundColor: boardValues.map(v => v ? 'rgba(33,150,243,0.6)' : 'rgba(244,67,54,0.6)'), borderColor: boardValues.map(v => v ? '#2196f3' : '#f44336'), borderWidth: 1 }]
+                },
+                options: { scales: { y: { min: 0, max: 1.2, ticks: { stepSize: 1 } } } }
+            });
+
+            document.getElementById('board-list').innerHTML = boards.map(([name, online]) =>
+                `<span style="margin:5px; padding:5px 10px; border-radius:5px; background:${online ? '#e8f5e9' : '#ffebee'}; color:${online ? 'green' : 'red'}; font-weight:bold;">${name}: ${online ? 'Online' : 'Offline'}</span>`
+            ).join('');
+
+        } catch (err) { console.error("Update error:", err); }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 5000);
+</script>
+</body>
+</html>

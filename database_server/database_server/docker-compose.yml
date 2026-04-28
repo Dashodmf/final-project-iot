@@ -1,0 +1,37 @@
+name: influx-iot-setup
+
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - ./influxdb_data:/var/lib/influxdb2
+      - ./influxdb_config:/etc/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password123
+      - DOCKER_INFLUXDB_INIT_ORG=ee-iot
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensor_data
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-auth-token
+    restart: always
+
+  data-sender:
+    build: .
+    container_name: data-sender
+    depends_on:
+      - influxdb
+    volumes:
+      - ./send_data.py:/app/send_data.py
+    environment:
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-auth-token
+      - INFLUXDB_ORG=ee-iot
+      - INFLUXDB_BUCKET=sensor_data
+    restart: always
+
+volumes:
+  influxdb_data:
+  influxdb_config:
