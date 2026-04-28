@@ -1,0 +1,33 @@
+services:
+  api-server:
+    build: .
+    container_name: api-server
+    expose:
+      - "8000"
+    networks:
+      - influx-network
+    environment:
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-auth-token
+      - INFLUXDB_ORG=ee-iot
+      - INFLUXDB_BUCKET=sensor_data
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./index.html:/usr/share/nginx/html/index.html
+    depends_on:
+      - api-server
+    networks:
+      - influx-network
+    restart: always
+
+networks:
+  influx-network:
+    external: true
+    name: influx-iot-setup_default
